@@ -3,11 +3,9 @@ package handlers
 import (
 	"net/http"
 	"time"
-
-	"github.com/AlbinaKonovalova/go_final_project/utils"
 )
 
-func NextDateHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) NextDateHandler(w http.ResponseWriter, r *http.Request) {
 	nowStr := r.FormValue("now")
 	dateStr := r.FormValue("date")
 	repeatStr := r.FormValue("repeat")
@@ -18,7 +16,7 @@ func NextDateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nextDate, err := utils.NextDate(now, dateStr, repeatStr)
+	nextDate, err := h.Storage.NextDate(now, dateStr, repeatStr)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

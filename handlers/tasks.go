@@ -8,12 +8,20 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AlbinaKonovalova/go_final_project/db"
 	"github.com/AlbinaKonovalova/go_final_project/models"
+	"github.com/AlbinaKonovalova/go_final_project/storage"
 	"github.com/AlbinaKonovalova/go_final_project/utils"
 )
 
-func TaskHandler(w http.ResponseWriter, r *http.Request) {
+type Handler struct {
+	Storage *storage.Storage
+}
+
+func NewHandler(s *storage.Storage) *Handler {
+	return &Handler{Storage: s}
+}
+
+func (h *Handler) TaskHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		log.Println("POST /api/task")
@@ -51,16 +59,9 @@ func TaskHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		res, err := db.DB.Exec(`INSERT INTO scheduler (date, title, comment, repeat) VALUES (?, ?, ?, ?)`,
-			task.Date, task.Title, task.Comment, task.Repeat)
+		id, err := h.Storage.InsertTask(task)
 		if err != nil {
 			http.Error(w, `{"error":"Failed to insert task"}`, http.StatusInternalServerError)
-			return
-		}
-
-		id, err := res.LastInsertId()
-		if err != nil {
-			http.Error(w, `{"error":"Failed to get task ID"}`, http.StatusInternalServerError)
 			return
 		}
 
@@ -77,9 +78,7 @@ func TaskHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		row := db.DB.QueryRow(`SELECT * FROM scheduler WHERE id = ?`, id)
-		var task models.Task
-		err := row.Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+		task, err := h.Storage.GetTaskByID(id)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				http.Error(w, `{"error":"Задача не найдена"}`, http.StatusNotFound)
@@ -133,21 +132,9 @@ func TaskHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		res, err := db.DB.Exec(`UPDATE scheduler SET date = ?, title = ?, comment = ?, repeat = ? WHERE id = ?`,
-			task.Date, task.Title, task.Comment, task.Repeat, task.ID)
+		err = h.Storage.UpdateTask(task)
 		if err != nil {
 			http.Error(w, `{"error":"Failed to update task"}`, http.StatusInternalServerError)
-			return
-		}
-
-		rowsAffected, err := res.RowsAffected()
-		if err != nil {
-			http.Error(w, `{"error":"Failed to get affected rows"}`, http.StatusInternalServerError)
-			return
-		}
-
-		if rowsAffected == 0 {
-			http.Error(w, `{"error":"Задача не найдена"}`, http.StatusNotFound)
 			return
 		}
 
@@ -164,20 +151,9 @@ func TaskHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		res, err := db.DB.Exec(`DELETE FROM scheduler WHERE id = ?`, id)
+		err := h.Storage.DeleteTask(id)
 		if err != nil {
 			http.Error(w, `{"error":"Failed to delete task"}`, http.StatusInternalServerError)
-			return
-		}
-
-		rowsAffected, err := res.RowsAffected()
-		if err != nil {
-			http.Error(w, `{"error":"Failed to get affected rows"}`, http.StatusInternalServerError)
-			return
-		}
-
-		if rowsAffected == 0 {
-			http.Error(w, `{"error":"Задача не найдена"}`, http.StatusNotFound)
 			return
 		}
 
@@ -192,32 +168,11 @@ func TaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func TasksListHandler(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) TasksListHandler(w http.ResponseWriter, _ *http.Request) {
 	log.Println("/api/tasks")
-	rows, err := db.DB.Query(`SELECT * FROM scheduler ORDER BY date ASC LIMIT 50`)
+	tasks, err := h.Storage.GetTasks()
 	if err != nil {
 		http.Error(w, `{"error":"Failed to query tasks"}`, http.StatusInternalServerError)
-		return
-	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			log.Println(err)
-		}
-	}()
-
-	tasks := make([]models.Task, 0)
-	for rows.Next() {
-		var task models.Task
-		err := rows.Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat)
-		if err != nil {
-			http.Error(w, `{"error":"Failed to scan task"}`, http.StatusInternalServerError)
-			return
-		}
-		tasks = append(tasks, task)
-	}
-
-	if err = rows.Err(); err != nil {
-		http.Error(w, `{"error":"Failed to read tasks"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -227,7 +182,7 @@ func TasksListHandler(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func TaskDoneHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) TaskDoneHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"Invalid method"}`, http.StatusMethodNotAllowed)
 		return
@@ -239,9 +194,7 @@ func TaskDoneHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	row := db.DB.QueryRow(`SELECT * FROM scheduler WHERE id = ?`, id)
-	var task models.Task
-	err := row.Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+	task, err := h.Storage.GetTaskByID(id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, `{"error":"Задача не найдена"}`, http.StatusNotFound)
@@ -252,7 +205,7 @@ func TaskDoneHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if task.Repeat == "" {
-		_, err := db.DB.Exec(`DELETE FROM scheduler WHERE id = ?`, id)
+		err := h.Storage.DeleteTask(id)
 		if err != nil {
 			http.Error(w, `{"error":"Failed to delete task"}`, http.StatusInternalServerError)
 			return
@@ -264,7 +217,8 @@ func TaskDoneHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		_, err = db.DB.Exec(`UPDATE scheduler SET date = ? WHERE id = ?`, nextDate, id)
+		task.Date = nextDate
+		err = h.Storage.UpdateTask(task)
 		if err != nil {
 			http.Error(w, `{"error":"Failed to update task date"}`, http.StatusInternalServerError)
 			return

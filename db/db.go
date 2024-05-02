@@ -11,16 +11,16 @@ import (
 
 var DB *sql.DB
 
-func GetDBFilePath() string {
+func GetDBFilePath() (string, error) {
 	dbFilePath := os.Getenv("TODO_DBFILE")
 	if dbFilePath == "" {
 		currentDir, err := os.Getwd()
 		if err != nil {
-			log.Fatal(err)
+			return "", err
 		}
 		dbFilePath = filepath.Join(currentDir, "scheduler.db")
 	}
-	return dbFilePath
+	return dbFilePath, nil
 }
 
 func InitDB(dbFilePath string) {
@@ -31,12 +31,12 @@ func InitDB(dbFilePath string) {
 	}
 
 	_, err = DB.Exec(`CREATE TABLE IF NOT EXISTS scheduler (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		date TEXT NOT NULL,
-		title TEXT NOT NULL,
-		comment TEXT,
-		repeat TEXT CHECK(length(repeat) <= 128)
-	);`)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT NOT NULL,
+  title TEXT NOT NULL,
+  comment TEXT,
+  repeat TEXT CHECK(length(repeat) <= 128)
+ );`)
 
 	if err != nil {
 		log.Fatal(err)
